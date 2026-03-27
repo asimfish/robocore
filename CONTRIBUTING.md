@@ -5,8 +5,7 @@
 ```bash
 git clone https://github.com/YOUR_USERNAME/robocore.git
 cd robocore
-python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+uv sync
 ```
 
 ## 添加新算法
@@ -33,8 +32,8 @@ pip install -e ".[dev]"
 ## 测试
 
 ```bash
-pytest tests/ -v
-pytest tests/test_policy.py -v  # 单个文件
+uv run pytest tests/ -v
+uv run pytest tests/test_policy.py -v  # 单个文件
 ```
 
 ## 代码风格

@@ -1,7 +1,3 @@
-[build-system]
-requires = ["setuptools>=68.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "robocore"
 version = "0.2.0"
@@ -40,11 +36,11 @@ zarr = ["zarr>=2.14"]
 lerobot = ["datasets>=2.14", "pyarrow>=12.0"]
 rlds = ["tensorflow-datasets>=4.9", "tensorflow>=2.13"]
 
-# Benchmark 环境
-robomimic = ["robomimic>=0.3", "robosuite>=1.4"]
+# Benchmark 环境（按需单独安装，不参与默认解析）
+robomimic = ["robomimic>=0.2"]
 libero = ["libero>=0.1"]
-maniskill3 = ["mani_skill>=3.0"]
-robotwin = ["robotwin>=2.0"]
+maniskill3 = ["mani-skill>=0.3"]
+robotwin = []  # 从源码安装
 
 # 算法
 diffusion = ["diffusers>=0.25"]
@@ -69,7 +65,7 @@ docs = [
 # 可视化
 viz = ["matplotlib>=3.7", "tensorboard>=2.14"]
 
-# 全量安装
+# 全量安装（不含 benchmark 环境，因为它们之间可能有依赖冲突）
 all = [
     "robocore[hdf5,zarr,lerobot,diffusion,vla,viz,dev,docs]",
 ]
@@ -78,13 +74,49 @@ all = [
 robocore = "robocore.cli.main:main"
 
 [project.urls]
-Homepage = "https://github.com/robocore/robocore"
+Homepage = "https://github.com/asimfish/robocore"
 Documentation = "https://robocore.readthedocs.io"
-Repository = "https://github.com/robocore/robocore"
+Repository = "https://github.com/asimfish/robocore"
 
-[tool.setuptools.packages.find]
-include = ["robocore*"]
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
+# ============================================================
+# uv 配置
+# ============================================================
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+    "mypy>=1.5",
+    "pre-commit>=3.0",
+    "matplotlib>=3.7",
+]
+
+[tool.uv]
+# Benchmark 环境之间可能有依赖冲突，不参与默认解析
+# 需要时单独安装：uv pip install -e ".[robomimic]"
+conflicts = [
+    [
+        {extra = "robomimic"},
+        {extra = "libero"},
+        {extra = "maniskill3"},
+    ],
+]
+
+[tool.uv.sources]
+# PyTorch 官方源（如需 CUDA 版本可改为对应 URL）
+# torch = { index = "pytorch-cu121" }
+
+# [[tool.uv.index]]
+# name = "pytorch-cu121"
+# url = "https://download.pytorch.org/whl/cu121"
+
+# ============================================================
+# 工具配置
+# ============================================================
 [tool.ruff]
 target-version = "py310"
 line-length = 100

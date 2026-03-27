@@ -6,3 +6,4 @@ outputs/
 .pytest_cache/
 dist/
 build/
+.mypy_cache/

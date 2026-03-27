@@ -24,19 +24,29 @@
 ## 快速开始
 
 ```bash
-pip install -e ".[dev]"
+# 安装 uv（如果还没有）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 克隆并安装
+git clone https://github.com/asimfish/robocore.git
+cd robocore
+uv sync
 
 # 训练 Diffusion Policy on RoboMimic
-robocore train --config configs/dp_robomimic.yaml
+uv run robocore train --config configs/dp_robomimic.yaml
 
 # 评估
-robocore eval --checkpoint outputs/dp_robomimic/best.pt
+uv run robocore eval --checkpoint outputs/dp_robomimic/best.pt
 
 # 数据格式转换
-robocore convert --src data/demo.hdf5 --dst data/demo_lerobot --src-format hdf5 --dst-format lerobot
+uv run robocore convert --src data/demo.hdf5 --dst data/demo_lerobot --src-format hdf5 --dst-format lerobot
 
 # 查看数据集信息
-robocore info --path data/demo.hdf5
+uv run robocore info --path data/demo.hdf5
+
+# 安装可选依赖（如 benchmark 环境）
+uv sync --extra robomimic
+uv sync --extra viz
 ```
 
 ## 架构
@@ -117,8 +127,8 @@ class MyPolicy(BasePolicy):
 # 开发环境
 git clone https://github.com/YOUR_USERNAME/robocore.git
 cd robocore
-pip install -e ".[dev]"
-pytest tests/ -v
+uv sync
+uv run pytest tests/ -v
 ```
 
 ## License
