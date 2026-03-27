@@ -1,0 +1,99 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "robocore"
+version = "0.1.0"
+description = "通用机器人学习祖传代码库 — 统一 benchmark、算法、数据格式"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "RoboCore Contributors"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.24",
+    "einops>=0.7",
+    "omegaconf>=2.3",
+    "hydra-core>=1.3",
+    "tqdm>=4.65",
+    "pillow>=9.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# 数据格式
+hdf5 = ["h5py>=3.8"]
+zarr = ["zarr>=2.14"]
+lerobot = ["datasets>=2.14", "pyarrow>=12.0"]
+rlds = ["tensorflow-datasets>=4.9", "tensorflow>=2.13"]
+
+# Benchmark 环境
+robomimic = ["robomimic>=0.3", "robosuite>=1.4"]
+libero = ["libero>=0.1"]
+maniskill3 = ["mani_skill>=3.0"]
+robotwin = ["robotwin>=2.0"]
+
+# 算法
+diffusion = ["diffusers>=0.25"]
+vla = ["transformers>=4.36", "accelerate>=0.25"]
+
+# 开发
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+    "mypy>=1.5",
+    "pre-commit>=3.0",
+]
+
+# 文档
+docs = [
+    "mkdocs>=1.5",
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.24",
+]
+
+# 全量安装
+all = [
+    "robocore[hdf5,zarr,lerobot,diffusion,vla,dev,docs]",
+]
+
+[project.scripts]
+robocore = "robocore.cli.main:main"
+
+[project.urls]
+Homepage = "https://github.com/robocore/robocore"
+Documentation = "https://robocore.readthedocs.io"
+Repository = "https://github.com/robocore/robocore"
+
+[tool.setuptools.packages.find]
+include = ["robocore*"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true

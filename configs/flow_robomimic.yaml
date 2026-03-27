@@ -1,0 +1,36 @@
+# Flow Policy on RoboMimic Lift
+policy:
+  name: flow_policy
+  obs_dim: 10
+  action_dim: 7
+  obs_horizon: 2
+  pred_horizon: 16
+  action_horizon: 8
+  hidden_dim: 256
+  num_inference_steps: 10
+
+data:
+  dataset_name: robomimic_lift
+  root: data/robomimic/lift/ph/low_dim.hdf5
+  format: hdf5
+  obs_horizon: 2
+  pred_horizon: 16
+  batch_size: 64
+  num_workers: 4
+
+env:
+  benchmark: robomimic
+  task_name: Lift
+  max_episode_steps: 400
+  num_eval_episodes: 50
+
+train:
+  seed: 42
+  device: cuda
+  output_dir: outputs/
+  exp_name: flow_robomimic_lift
+  num_epochs: 100
+  steps_per_epoch: 500
+  lr: 1.0e-4
+  lr_scheduler: cosine
+  use_ema: true
