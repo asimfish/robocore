@@ -20,6 +20,8 @@ from robocore.policy.algos.flow_variants import (
     FlowDiTPolicy,
 )
 
+from robocore.policy.algos.imitation import BCPolicy, BCRNNPolicy, IBCPolicy, DAggerPolicy
+
 __all__ = [
     # 核心算法
     "DiffusionPolicy", "ACTPolicy", "FlowPolicy",
@@ -29,4 +31,6 @@ __all__ = [
     "DPTransformer", "DPCNN", "DPBehaviorEnsemble", "DPClassifierFreeGuidance",
     # Flow 变种
     "MeanFlowPolicy", "ConsistencyFlowPolicy", "RectifiedFlowPolicy", "FlowDiTPolicy",
+    # 模仿学习
+    "BCPolicy", "BCRNNPolicy", "IBCPolicy", "DAggerPolicy",
 ]
