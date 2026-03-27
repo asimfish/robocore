@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "robocore"
-version = "0.1.0"
+version = "0.2.0"
 description = "通用机器人学习祖传代码库 — 统一 benchmark、算法、数据格式"
 readme = "README.md"
 license = {text = "Apache-2.0"}
@@ -66,9 +66,12 @@ docs = [
     "mkdocstrings[python]>=0.24",
 ]
 
+# 可视化
+viz = ["matplotlib>=3.7", "tensorboard>=2.14"]
+
 # 全量安装
 all = [
-    "robocore[hdf5,zarr,lerobot,diffusion,vla,dev,docs]",
+    "robocore[hdf5,zarr,lerobot,diffusion,vla,viz,dev,docs]",
 ]
 
 [project.scripts]
