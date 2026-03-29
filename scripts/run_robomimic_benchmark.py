@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import time
+from dataclasses import asdict
 
 os.environ.setdefault("MUJOCO_GL", "egl")
 
@@ -29,6 +31,9 @@ from robocore.policy.registry import PolicyRegistry
 from robocore.trainer.base import BaseTrainer
 
 import robocore.policy.algos  # noqa: F401 — 触发注册
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
 
 
 def set_seed(seed: int) -> None:
@@ -66,7 +71,29 @@ def build_config(
             seed=42, device=device, output_dir=output_dir,
             exp_name=f"bc_robomimic_{task_lower}",
             num_epochs=60, steps_per_epoch=100,
+            lr=3e-4, weight_decay=1e-6,
+            warmup_steps=500, lr_scheduler="cosine",
+            use_amp=True, amp_dtype="bf16",
+            use_ema=False, log_interval=5, save_interval=10,
+            eval_interval=1000, use_wandb=False,
+        )
+    elif algo == "bc_rnn":
+        policy = PolicyConfig(
+            name="bc_rnn",
+            obs_dim=obs_dim,
+            action_dim=7,
+            obs_horizon=10,
+            pred_horizon=1,
+            action_horizon=1,
+            hidden_dim=256,
+            extra={"rnn_layers": 2},
+        )
+        train = TrainConfig(
+            seed=42, device=device, output_dir=output_dir,
+            exp_name=f"bc_rnn_robomimic_{task_lower}",
+            num_epochs=60, steps_per_epoch=100,
             lr=1e-4, weight_decay=1e-6,
+            warmup_steps=500, lr_scheduler="cosine",
             use_amp=True, amp_dtype="bf16",
             use_ema=False, log_interval=5, save_interval=10,
             eval_interval=1000, use_wandb=False,
@@ -81,13 +108,37 @@ def build_config(
             action_horizon=8,
             hidden_dim=256,
             num_inference_steps=10,
-            extra={"down_dims": (256, 512, 1024)},
+            extra={"down_dims": [256, 512, 1024]},
         )
         train = TrainConfig(
             seed=42, device=device, output_dir=output_dir,
             exp_name=f"dp_robomimic_{task_lower}",
             num_epochs=40, steps_per_epoch=100,
             lr=1e-4, weight_decay=1e-6,
+            warmup_steps=500, lr_scheduler="cosine",
+            use_amp=True, amp_dtype="bf16",
+            use_ema=True, ema_decay=0.995,
+            log_interval=5, save_interval=10,
+            eval_interval=1000, use_wandb=False,
+        )
+    elif algo == "flow_policy":
+        policy = PolicyConfig(
+            name="flow_policy",
+            obs_dim=obs_dim,
+            action_dim=7,
+            obs_horizon=2,
+            pred_horizon=16,
+            action_horizon=8,
+            hidden_dim=256,
+            num_inference_steps=10,
+            extra={"down_dims": [256, 512, 1024]},
+        )
+        train = TrainConfig(
+            seed=42, device=device, output_dir=output_dir,
+            exp_name=f"flow_robomimic_{task_lower}",
+            num_epochs=40, steps_per_epoch=100,
+            lr=1e-4, weight_decay=1e-6,
+            warmup_steps=500, lr_scheduler="cosine",
             use_amp=True, amp_dtype="bf16",
             use_ema=True, ema_decay=0.995,
             log_interval=5, save_interval=10,
@@ -109,49 +160,8 @@ def build_config(
             seed=42, device=device, output_dir=output_dir,
             exp_name=f"act_robomimic_{task_lower}",
             num_epochs=40, steps_per_epoch=100,
-            lr=1e-5, weight_decay=1e-4,
-            use_amp=True, amp_dtype="bf16",
-            use_ema=False, log_interval=5, save_interval=10,
-            eval_interval=1000, use_wandb=False,
-        )
-    elif algo == "flow_policy":
-        policy = PolicyConfig(
-            name="flow_policy",
-            obs_dim=obs_dim,
-            action_dim=7,
-            obs_horizon=2,
-            pred_horizon=16,
-            action_horizon=8,
-            hidden_dim=256,
-            num_inference_steps=10,
-            extra={"down_dims": (256, 512, 1024)},
-        )
-        train = TrainConfig(
-            seed=42, device=device, output_dir=output_dir,
-            exp_name=f"flow_robomimic_{task_lower}",
-            num_epochs=40, steps_per_epoch=100,
-            lr=5e-5, weight_decay=1e-6,
-            use_amp=True, amp_dtype="bf16",
-            use_ema=True, ema_decay=0.995,
-            log_interval=5, save_interval=10,
-            eval_interval=1000, use_wandb=False,
-        )
-    elif algo == "bc_rnn":
-        policy = PolicyConfig(
-            name="bc_rnn",
-            obs_dim=obs_dim,
-            action_dim=7,
-            obs_horizon=10,
-            pred_horizon=1,
-            action_horizon=1,
-            hidden_dim=256,
-            extra={"rnn_layers": 2},
-        )
-        train = TrainConfig(
-            seed=42, device=device, output_dir=output_dir,
-            exp_name=f"bc_rnn_robomimic_{task_lower}",
-            num_epochs=60, steps_per_epoch=100,
             lr=1e-4, weight_decay=1e-6,
+            warmup_steps=500, lr_scheduler="cosine",
             use_amp=True, amp_dtype="bf16",
             use_ema=False, log_interval=5, save_interval=10,
             eval_interval=1000, use_wandb=False,
@@ -167,7 +177,7 @@ def build_config(
             hidden_dim=256,
             num_inference_steps=1,
             extra={
-                "down_dims": (256, 512, 1024),
+                "down_dims": [256, 512, 1024],
                 "latent_dim": 32,
                 "num_samples": 64,
                 "noise_scale": 1.0,
@@ -178,6 +188,7 @@ def build_config(
             exp_name=f"imle_robomimic_{task_lower}",
             num_epochs=40, steps_per_epoch=100,
             lr=1e-4, weight_decay=1e-6,
+            warmup_steps=500, lr_scheduler="cosine",
             use_amp=True, amp_dtype="bf16",
             use_ema=True, ema_decay=0.995,
             log_interval=5, save_interval=10,
@@ -211,6 +222,11 @@ def build_config(
 def evaluate_policy(
     policy, task: str, num_episodes: int = 20, max_steps: int = 400
 ) -> dict:
+    """评估策略。
+
+    使用 action chunking（action queue）执行完整 action horizon，
+    success 用 OR 累积（不覆盖），支持 obs_horizon 历史窗口。
+    """
     env = RoboMimicEnv(task_name=task, use_image=False, max_episode_steps=max_steps)
     policy.eval()
     device = next(policy.parameters()).device
@@ -218,18 +234,20 @@ def evaluate_policy(
     results = []
     for ep in range(num_episodes):
         obs = env.reset(seed=ep)
-        history = {
+        # 初始化观测历史窗口
+        history: dict[str, list[np.ndarray]] = {
             k: [obs[k].copy() for _ in range(policy.obs_horizon)] for k in obs
         }
         total_reward = 0.0
-        success = False
+        success = False  # OR 累积
         action_queue: list[np.ndarray] = []
 
         for step in range(max_steps):
+            # action chunking: 队列空时重新预测
             if len(action_queue) == 0:
-                obs_batch = {}
+                obs_batch: dict[str, torch.Tensor] = {}
                 for k, hist in history.items():
-                    arr = np.stack(hist[-policy.obs_horizon :], axis=0).astype(
+                    arr = np.stack(hist[-policy.obs_horizon:], axis=0).astype(
                         np.float32
                     )
                     obs_batch[k] = torch.from_numpy(arr).unsqueeze(0).to(device)
@@ -246,9 +264,11 @@ def evaluate_policy(
             step_result = env.step(action)
             total_reward += float(step_result.reward)
 
+            # success OR 累积（不覆盖）
             if step_result.info.get("success", False):
                 success = True
 
+            # 更新观测历史
             obs = step_result.obs
             for k in history:
                 history[k].append(obs[k].copy())
@@ -284,14 +304,14 @@ def evaluate_policy(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="RoboMimic Benchmark")
     parser.add_argument(
         "--algo",
         required=True,
-        choices=["dp", "act", "flow_policy", "bc", "bc_rnn", "imle"],
+        choices=["bc", "bc_rnn", "dp", "act", "flow_policy", "imle"],
     )
     parser.add_argument("--task", required=True, choices=["Lift", "Can"])
-    parser.add_argument("--data", required=True)
+    parser.add_argument("--data", required=True, help="HDF5 数据路径")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--eval-episodes", type=int, default=20)
     parser.add_argument("--num-epochs", type=int, default=None)
@@ -305,7 +325,7 @@ def main() -> None:
 
     set_seed(args.seed)
 
-    # ── 数据集 ──
+    # ── 数据集（先用默认 horizon 探测 obs_dim） ──
     obs_keys = ["state"]
     dataset = HDF5Dataset(
         root=args.data,
@@ -314,6 +334,7 @@ def main() -> None:
         pred_horizon=16,
     )
     obs_dim = dataset[0]["obs"]["state"].shape[-1]
+    dataset.close()
     print(f"[info] data={args.data}")
     print(f"[info] obs_keys={obs_keys}, obs_dim={obs_dim}")
 
@@ -382,6 +403,7 @@ def main() -> None:
         num_inference_steps=config.policy.num_inference_steps,
         **extra,
     )
+    print(f"[info] policy={config.policy.name}, num_params={policy.num_params:,}")
 
     # ── 训练 ──
     trainer = BaseTrainer(
@@ -401,6 +423,7 @@ def main() -> None:
     )
 
     # ── 保存结果 ──
+    config_dict = asdict(config)
     result = {
         "algo": args.algo,
         "task": args.task,
@@ -414,22 +437,22 @@ def main() -> None:
         },
         "eval": eval_result,
         "num_params": policy.num_params,
-        "config": config.to_dict(),
+        "config": config_dict,
     }
 
-    out_dir = os.path.join(
-        config.train.output_dir, config.train.exp_name
-    )
+    out_dir = os.path.join(config.train.output_dir, config.train.exp_name)
     os.makedirs(out_dir, exist_ok=True)
     result_path = os.path.join(out_dir, "benchmark_result.json")
     with open(result_path, "w") as f:
         json.dump(result, f, indent=2, default=str)
 
     print("=" * 80)
+    print(f"[result] algo={args.algo}, task={args.task}")
     print(f"[result] success_rate={eval_result['success_rate']:.3f}")
     print(f"[result] mean_reward={eval_result['mean_reward']:.3f}")
-    print(f"[result] mean_length={eval_result['mean_length']}")
+    print(f"[result] mean_length={eval_result['mean_length']:.1f}")
     print(f"[result] train_time_sec={train_time:.1f}")
+    print(f"[result] num_params={policy.num_params:,}")
     print(f"[result] saved_to={result_path}")
     print("=" * 80)
 

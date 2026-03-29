@@ -68,8 +68,8 @@ class DDPMScheduler(BaseScheduler):
     def add_noise(
         self, x: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor
     ) -> torch.Tensor:
-        sqrt_alpha = self.sqrt_alphas_cumprod[timesteps].to(x.device)
-        sqrt_one_minus_alpha = self.sqrt_one_minus_alphas_cumprod[timesteps].to(x.device)
+        sqrt_alpha = self.sqrt_alphas_cumprod.to(x.device)[timesteps]
+        sqrt_one_minus_alpha = self.sqrt_one_minus_alphas_cumprod.to(x.device)[timesteps]
 
         # 扩展维度以匹配 x
         while sqrt_alpha.ndim < x.ndim:
@@ -85,9 +85,9 @@ class DDPMScheduler(BaseScheduler):
         sample: torch.Tensor,
     ) -> torch.Tensor:
         """DDPM 去噪步骤。"""
-        alpha = self.alphas[timestep].to(sample.device)
-        alpha_cumprod = self.alphas_cumprod[timestep].to(sample.device)
-        beta = self.betas[timestep].to(sample.device)
+        alpha = self.alphas.to(sample.device)[timestep]
+        alpha_cumprod = self.alphas_cumprod.to(sample.device)[timestep]
+        beta = self.betas.to(sample.device)[timestep]
 
         # 预测 x_0
         pred_x0 = (
@@ -105,7 +105,7 @@ class DDPMScheduler(BaseScheduler):
 
         if timestep > 0:
             noise = torch.randn_like(sample)
-            variance = beta * (1 - self.alphas_cumprod[timestep - 1].to(sample.device)) / (
+            variance = beta * (1 - self.alphas_cumprod.to(sample.device)[timestep - 1]) / (
                 1 - alpha_cumprod
             )
             mean = mean + torch.sqrt(variance) * noise
@@ -141,8 +141,8 @@ class DDIMScheduler(BaseScheduler):
     def add_noise(
         self, x: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor
     ) -> torch.Tensor:
-        sqrt_alpha = torch.sqrt(self.alphas_cumprod[timesteps]).to(x.device)
-        sqrt_one_minus = torch.sqrt(1 - self.alphas_cumprod[timesteps]).to(x.device)
+        sqrt_alpha = torch.sqrt(self.alphas_cumprod.to(x.device)[timesteps])
+        sqrt_one_minus = torch.sqrt(1 - self.alphas_cumprod.to(x.device)[timesteps])
         while sqrt_alpha.ndim < x.ndim:
             sqrt_alpha = sqrt_alpha.unsqueeze(-1)
             sqrt_one_minus = sqrt_one_minus.unsqueeze(-1)
@@ -155,7 +155,7 @@ class DDIMScheduler(BaseScheduler):
         sample: torch.Tensor,
     ) -> torch.Tensor:
         """DDIM 确定性去噪。"""
-        alpha_t = self.alphas_cumprod[timestep].to(sample.device)
+        alpha_t = self.alphas_cumprod.to(sample.device)[timestep]
         alpha_prev = (
             self.alphas_cumprod[max(timestep - self.num_steps // self.num_inference_steps, 0)]
             .to(sample.device)
