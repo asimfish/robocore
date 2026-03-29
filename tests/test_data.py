@@ -79,3 +79,47 @@ def test_normalize():
     }
     result = norm(sample)
     assert "action" in result
+
+
+def test_resolve_robomimic_env_name_supports_can_alias() -> None:
+    from robocore.env.wrappers.robomimic_env import resolve_robomimic_env_name
+
+    assert resolve_robomimic_env_name("Lift") == "Lift"
+    assert resolve_robomimic_env_name("Can") == "PickPlaceCan"
+    assert resolve_robomimic_env_name("PickPlaceCan") == "PickPlaceCan"
+
+
+def test_can_teacher_contract_placeholder() -> None:
+    from scripts.generate_robomimic_data import CanTeacher
+
+    class DummyCanEnv:
+        object_id = 3
+        target_bin_placements = np.array(
+            [
+                [0.0025, 0.1575, 0.8],
+                [0.1975, 0.1575, 0.8],
+                [0.0025, 0.4025, 0.8],
+                [0.1975, 0.4025, 0.8],
+            ],
+            dtype=np.float32,
+        )
+        bin2_pos = np.array([0.1, 0.28, 0.8], dtype=np.float32)
+
+    env = DummyCanEnv()
+    teacher = CanTeacher()
+    teacher.reset(env)
+
+    obs = {
+        "robot0_eef_pos": np.array([0.0, 0.0, 1.0], dtype=np.float32),
+        "Can_pos": np.array([0.05, -0.1, 0.86], dtype=np.float32),
+        "Can_to_robot0_eef_pos": np.array([0.05, -0.1, -0.14], dtype=np.float32),
+        "robot0_gripper_qpos": np.array([0.02, -0.02], dtype=np.float32),
+    }
+
+    action = teacher.act(obs, env, grasped=False)
+
+    assert action.shape == (7,)
+    assert np.all(np.isfinite(action))
+    assert np.all(action <= 1.0)
+    assert np.all(action >= -1.0)
+    assert np.allclose(teacher.target_bin, env.target_bin_placements[env.object_id])

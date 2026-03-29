@@ -12,6 +12,18 @@ from robocore.env.wrappers.registry import EnvRegistry
 logger = logging.getLogger(__name__)
 
 
+ROBO_MIMIC_ENV_ALIASES = {
+    "Lift": "Lift",
+    "Can": "PickPlaceCan",
+    "PickPlaceCan": "PickPlaceCan",
+}
+
+
+def resolve_robomimic_env_name(task_name: str) -> str:
+    """将 RoboMimic 任务名映射到真实 robosuite 环境名。"""
+    return ROBO_MIMIC_ENV_ALIASES.get(task_name, task_name)
+
+
 @EnvRegistry.register("robomimic")
 class RoboMimicEnv(BaseEnv):
     """RoboMimic 环境 wrapper。
@@ -26,7 +38,7 @@ class RoboMimicEnv(BaseEnv):
         camera_names: list[str] | None = None,
         camera_height: int = 84,
         camera_width: int = 84,
-        use_image: bool = True,
+        use_image: bool = False,
         max_episode_steps: int = 400,
         **kwargs: Any,
     ):
@@ -47,14 +59,15 @@ class RoboMimicEnv(BaseEnv):
 
         try:
             import robosuite as suite
-            from robosuite.wrappers import GymWrapper
         except ImportError:
             raise ImportError(
                 "robosuite not installed. Install with: pip install robosuite"
             )
 
+        real_env_name = resolve_robomimic_env_name(self.task_name)
+
         env_kwargs = {
-            "env_name": self.task_name,
+            "env_name": real_env_name,
             "robots": self.robot,
             "has_renderer": False,
             "has_offscreen_renderer": self.use_image,
@@ -64,6 +77,7 @@ class RoboMimicEnv(BaseEnv):
             "camera_widths": self.camera_width,
             "horizon": self.max_episode_steps,
             "control_freq": 20,
+            "reward_shaping": True,
         }
 
         self._env = suite.make(**env_kwargs)
@@ -72,16 +86,12 @@ class RoboMimicEnv(BaseEnv):
         obs = self._env.reset()
         action_dim = self._env.action_spec[0].shape[0]
 
-        obs_keys = []
-        obs_shapes = {}
-        if "robot0_eef_pos" in obs:
-            state_dim = sum(
-                obs[k].shape[0]
-                for k in ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"]
-                if k in obs
-            )
-            obs_keys.append("state")
-            obs_shapes["state"] = (state_dim,)
+        # 计算完整 state dim（proprio + object）
+        state_vec = self._build_state_vector(obs)
+        state_dim = state_vec.shape[0]
+
+        obs_keys = ["state"]
+        obs_shapes = {"state": (state_dim,)}
 
         if self.use_image:
             for cam in self.camera_names:
@@ -99,6 +109,23 @@ class RoboMimicEnv(BaseEnv):
             task_name=self.task_name,
             max_episode_steps=self.max_episode_steps,
         )
+
+    def _build_state_vector(self, raw_obs: dict) -> np.ndarray:
+        """构建完整状态向量（与 HDF5 数据对齐）。"""
+        parts = []
+        # proprio state
+        if "robot0_proprio-state" in raw_obs:
+            parts.append(raw_obs["robot0_proprio-state"].astype(np.float32))
+        else:
+            for key in ["robot0_joint_pos", "robot0_joint_vel",
+                        "robot0_eef_pos", "robot0_eef_quat",
+                        "robot0_gripper_qpos", "robot0_gripper_qvel"]:
+                if key in raw_obs:
+                    parts.append(raw_obs[key].astype(np.float32))
+        # object state
+        if "object-state" in raw_obs:
+            parts.append(raw_obs["object-state"].astype(np.float32))
+        return np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32)
 
     def reset(self, seed: int | None = None) -> dict[str, Any]:
         self._lazy_init()
@@ -133,23 +160,15 @@ class RoboMimicEnv(BaseEnv):
     def _process_obs(self, raw_obs: dict) -> dict[str, Any]:
         """将 robosuite 观测转为统一格式。"""
         obs = {}
+        obs["state"] = self._build_state_vector(raw_obs)
 
-        # 状态
-        state_parts = []
-        for key in ["robot0_eef_pos", "robot0_eef_quat", "robot0_gripper_qpos"]:
-            if key in raw_obs:
-                state_parts.append(raw_obs[key].astype(np.float32))
-        if state_parts:
-            obs["state"] = np.concatenate(state_parts)
-
-        # 图像
         if self.use_image:
             for cam in self.camera_names:
                 key = f"{cam}_image"
                 if key in raw_obs:
                     img = raw_obs[key].astype(np.uint8)
                     if img.ndim == 3 and img.shape[-1] in (1, 3):
-                        img = np.transpose(img, (2, 0, 1))  # HWC -> CHW
+                        img = np.transpose(img, (2, 0, 1))
                     obs[f"image_{cam}"] = img
 
         return obs
