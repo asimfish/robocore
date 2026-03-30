@@ -10,6 +10,7 @@ def _register_all():
         "robocore.env.wrappers.libero_env",
         "robocore.env.wrappers.maniskill3_env",
         "robocore.env.wrappers.robotwin_env",
+        "robocore.env.wrappers.isaaclab_env",
     ]
     for mod_name in wrappers:
         try:

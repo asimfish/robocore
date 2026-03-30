@@ -42,6 +42,17 @@ libero = ["libero>=0.1"]
 maniskill3 = ["mani-skill>=0.3"]
 robotwin = []  # 从源码安装
 
+# IsaacSim + IsaacLab（需要 Python 3.11, Linux only）
+isaaclab = [
+    "isaacsim[all,extscache]==5.1.0.0",
+    "isaaclab",
+    "isaaclab-assets",
+    "isaaclab-tasks",
+    "isaaclab-rl",
+    "isaaclab-mimic",
+]
+isaaclab-rl = ["isaaclab-mimic[all]", "isaaclab-rl[all]"]
+
 # 算法
 diffusion = ["diffusers>=0.25"]
 vla = ["transformers>=4.36", "accelerate>=0.25"]
@@ -103,16 +114,37 @@ conflicts = [
         {extra = "robomimic"},
         {extra = "libero"},
         {extra = "maniskill3"},
+        {extra = "isaaclab"},
     ],
 ]
+# IsaacSim 仅支持 Linux
+environments = [
+    "sys_platform == 'linux'",
+]
+# FIX: https://github.com/isaac-sim/IsaacLab/issues/3884
+override-dependencies = ["pywin32==306; sys_platform == 'win32'"]
 
 [tool.uv.sources]
-# PyTorch 官方源（如需 CUDA 版本可改为对应 URL）
-# torch = { index = "pytorch-cu121" }
+# PyTorch CUDA 12.8 源
+torch = [{ index = "pytorch-cu128" }]
+# IsaacSim NVIDIA 源
+isaacsim = [{ index = "nvidia" }]
+# IsaacLab 本地 editable 安装（git submodule）
+isaaclab = { path = "isaaclab/source/isaaclab", editable = true }
+isaaclab-assets = { path = "isaaclab/source/isaaclab_assets", editable = true }
+isaaclab-tasks = { path = "isaaclab/source/isaaclab_tasks", editable = true }
+isaaclab-rl = { path = "isaaclab/source/isaaclab_rl", editable = true }
+isaaclab-mimic = { path = "isaaclab/source/isaaclab_mimic", editable = true }
 
-# [[tool.uv.index]]
-# name = "pytorch-cu121"
-# url = "https://download.pytorch.org/whl/cu121"
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "nvidia"
+url = "https://pypi.nvidia.com"
+explicit = true
 
 # ============================================================
 # 工具配置
