@@ -32,6 +32,7 @@ class ManiSkill3Env(BaseEnv):
         self.num_envs = num_envs
         self.max_episode_steps = max_episode_steps
         self.render_mode = render_mode
+        self._extra_kwargs = kwargs
         self._env = None
         self._step_count = 0
         self._last_obs: Any | None = None
@@ -48,26 +49,29 @@ class ManiSkill3Env(BaseEnv):
                 "mani_skill not installed. Recommended install: pip install mani_skill"
             ) from exc
 
-        # ManiSkill 3 当前通过环境注册时绑定 episode limit，gym.make 不再接收
-        # max_episode_steps 覆盖参数，因此这里由 wrapper 自行维护 truncated。
-        env_kwargs = {
+        env_kwargs: dict[str, Any] = {
             "obs_mode": self.obs_mode,
             "control_mode": self.control_mode,
             "num_envs": self.num_envs,
         }
         if self.render_mode:
             env_kwargs["render_mode"] = self.render_mode
+        # 传递额外参数（如 robot_uids）
+        env_kwargs.update(self._extra_kwargs)
 
         self._env = gym.make(self.task_name, **env_kwargs)
 
-        obs, _ = self._env.reset()
-        self._last_obs = obs
+        # 获取动作维度
         action_space = getattr(self._env, "single_action_space", self._env.action_space)
-        action_shape = getattr(action_space, "shape", ())
-        action_dim = int(action_shape[-1]) if action_shape else 0
+        action_dim = action_space.shape[-1] if hasattr(action_space, "shape") else 7
+
+        # 获取动作范围
+        action_low = float(getattr(action_space, "low", np.array([-1.0])).flat[0])
+        action_high = float(getattr(action_space, "high", np.array([1.0])).flat[0])
 
         self._spec = EnvSpec(
             action_dim=action_dim,
+            action_range=(action_low, action_high),
             task_name=self.task_name,
             max_episode_steps=self.max_episode_steps,
             num_envs=self.num_envs,
@@ -75,114 +79,160 @@ class ManiSkill3Env(BaseEnv):
 
     def reset(self, seed: int | None = None) -> dict[str, Any]:
         self._lazy_init()
-        obs, _ = self._env.reset(seed=seed)
-        self._last_obs = obs
         self._step_count = 0
-        return self._process_obs(obs)
+        obs, info = self._env.reset(seed=seed)
+        self._last_obs = obs
+        processed = self._process_obs(obs)
+        self._update_spec_from_obs(processed)
+        return processed
 
     def step(self, action: np.ndarray) -> StepResult:
-        import torch as th
-
         self._lazy_init()
-
-        if isinstance(action, np.ndarray):
-            action_input = th.from_numpy(action)
-        elif isinstance(action, th.Tensor):
-            action_input = action
-        else:
-            action_input = th.as_tensor(action)
-
-        action_input = action_input.float()
-        if self.num_envs == 1 and action_input.ndim == 1:
-            action_input = action_input.unsqueeze(0)
-
-        obs, reward, terminated, truncated, info = self._env.step(action_input)
-        self._last_obs = obs
         self._step_count += 1
 
-        reward_value = self._to_scalar_or_array(reward, np.float32)
-        done_value = self._to_scalar_or_array(terminated, np.bool_)
-        truncated_value = self._to_scalar_or_array(truncated, np.bool_)
-
-        if self.num_envs == 1:
-            truncated_value = bool(truncated_value) or self._step_count >= self.max_episode_steps
+        # ManiSkill 3 期望 (num_envs, action_dim) 的 tensor
+        import torch
+        if isinstance(action, np.ndarray):
+            action_t = torch.from_numpy(action).float()
         else:
-            truncated_value = np.asarray(truncated_value, dtype=bool) | (
-                self._step_count >= self.max_episode_steps
-            )
+            action_t = action
+        if action_t.ndim == 1:
+            action_t = action_t.unsqueeze(0)
+
+        obs, reward, terminated, truncated, info = self._env.step(action_t)
+        self._last_obs = obs
+
+        # 处理标量
+        reward_val = float(self._to_numpy(reward).flat[0]) if hasattr(reward, '__len__') else float(reward)
+        term_val = bool(self._to_numpy(terminated).flat[0]) if hasattr(terminated, '__len__') else bool(terminated)
+        trunc_val = bool(self._to_numpy(truncated).flat[0]) if hasattr(truncated, '__len__') else bool(truncated)
+
+        # 手动 truncation
+        if self._step_count >= self.max_episode_steps and not term_val:
+            trunc_val = True
 
         return StepResult(
             obs=self._process_obs(obs),
-            reward=float(reward_value) if self.num_envs == 1 else reward_value,
-            done=bool(done_value) if self.num_envs == 1 else done_value,
-            truncated=truncated_value,
-            info=info,
+            reward=reward_val,
+            done=term_val,
+            truncated=trunc_val,
+            info=self._process_info(info),
         )
 
     def get_obs(self) -> dict[str, Any]:
         self._lazy_init()
-        if hasattr(self._env, "get_obs"):
-            self._last_obs = self._env.get_obs()
-        if self._last_obs is None:
-            raise RuntimeError("Observation not available before reset().")
-        return self._process_obs(self._last_obs)
+        obs = self._env.get_obs()
+        return self._process_obs(obs)
 
     def close(self) -> None:
         if self._env is not None:
             self._env.close()
             self._env = None
-            self._last_obs = None
 
-    def _process_obs(self, obs: Any) -> dict[str, Any]:
-        """处理 ManiSkill 3 观测。"""
-        result: dict[str, Any] = {}
+    def _update_spec_from_obs(self, processed_obs: dict[str, Any]) -> None:
+        """根据实际观测更新 spec 的 obs_keys/shapes。"""
+        if self._spec is None:
+            return
+        self._spec.obs_keys = list(processed_obs.keys())
+        self._spec.obs_shapes = {k: v.shape for k, v in processed_obs.items() if hasattr(v, "shape")}
 
+    def _process_obs(self, obs: Any) -> dict[str, np.ndarray]:
+        """将 ManiSkill 观测转为统一格式。"""
         if isinstance(obs, dict):
-            if "agent" in obs:
-                agent_obs = obs["agent"]
-                parts = []
-                for key in ["qpos", "qvel", "base_pose"]:
-                    if key in agent_obs:
-                        parts.append(self._flatten_feature(agent_obs[key]))
-                if parts:
-                    result["state"] = np.concatenate(parts, axis=0 if self.num_envs == 1 else -1)
+            state_parts: list[np.ndarray] = []
+            result: dict[str, np.ndarray] = {}
 
+            # agent 状态
+            if "agent" in obs:
+                agent = obs["agent"]
+                if isinstance(agent, dict):
+                    for v in agent.values():
+                        arr = self._strip_single_env_batch(self._to_numpy(v))
+                        state_parts.append(arr.flatten().astype(np.float32))
+                else:
+                    arr = self._strip_single_env_batch(self._to_numpy(agent))
+                    state_parts.append(arr.flatten().astype(np.float32))
+
+            # extra 状态（goal_pos 等）
+            if "extra" in obs:
+                extra = obs["extra"]
+                if isinstance(extra, dict):
+                    for v in extra.values():
+                        arr = self._strip_single_env_batch(self._to_numpy(v))
+                        state_parts.append(arr.flatten().astype(np.float32))
+                else:
+                    arr = self._strip_single_env_batch(self._to_numpy(extra))
+                    state_parts.append(arr.flatten().astype(np.float32))
+
+            # 传感器数据（图像/点云）
             if "sensor_data" in obs:
                 for cam_name, cam_data in obs["sensor_data"].items():
-                    if "rgb" not in cam_data:
-                        continue
-                    img = self._strip_single_env_batch(self._to_numpy(cam_data["rgb"]))
-                    if self.num_envs == 1:
-                        if img.ndim == 3 and img.shape[-1] in (1, 3, 4):
-                            img = np.transpose(img, (2, 0, 1))
-                    elif img.ndim == 4 and img.shape[-1] in (1, 3, 4):
-                        img = np.transpose(img, (0, 3, 1, 2))
-                    result[f"image_{cam_name}"] = img
+                    if isinstance(cam_data, dict):
+                        # 处理 Color (RGBA → RGB, HWC → CHW)
+                        if "Color" in cam_data:
+                            rgba = self._strip_single_env_batch(self._to_numpy(cam_data["Color"]))
+                            # 取 RGB 通道（去掉 alpha）
+                            if rgba.ndim == 3 and rgba.shape[-1] == 4:
+                                rgb = rgba[:, :, :3]
+                            elif rgba.ndim == 3 and rgba.shape[-1] == 3:
+                                rgb = rgba
+                            else:
+                                rgb = rgba
+                            # HWC → CHW
+                            if rgb.ndim == 3:
+                                rgb = np.transpose(rgb, (2, 0, 1))
+                            result[f"image_{cam_name}"] = rgb
+                        # 处理 depth
+                        if "depth" in cam_data:
+                            depth = self._strip_single_env_batch(self._to_numpy(cam_data["depth"]))
+                            result[f"depth_{cam_name}"] = depth
+                        # 处理 rgb（小写）
+                        if "rgb" in cam_data:
+                            rgb = self._strip_single_env_batch(self._to_numpy(cam_data["rgb"]))
+                            if rgb.ndim == 3 and rgb.shape[-1] in (3, 4):
+                                rgb = np.transpose(rgb[:, :, :3], (2, 0, 1))
+                            result[f"image_{cam_name}"] = rgb
+                    else:
+                        arr = self._strip_single_env_batch(self._to_numpy(cam_data))
+                        result[f"sensor_{cam_name}"] = arr
 
-            if "pointcloud" in obs and "xyzw" in obs["pointcloud"]:
-                pointcloud = self._strip_single_env_batch(
-                    self._to_numpy(obs["pointcloud"]["xyzw"])
-                )
-                result["pointcloud"] = pointcloud.astype(np.float32)
-
+            if state_parts:
+                result["state"] = np.concatenate(state_parts)
             return result
 
-        state = self._strip_single_env_batch(self._to_numpy(obs)).astype(np.float32)
-        result["state"] = state.reshape(-1) if self.num_envs == 1 else state
+        # 纯 tensor/array 观测
+        arr = self._strip_single_env_batch(self._to_numpy(obs))
+        return {"state": arr.flatten().astype(np.float32)}
+
+    def _process_info(self, info: dict[str, Any]) -> dict[str, Any]:
+        """递归将 info 中的 tensor 转为 Python 标量。"""
+        result: dict[str, Any] = {}
+        for k, v in info.items():
+            if isinstance(v, dict):
+                result[k] = self._process_info(v)
+            else:
+                arr = self._to_numpy(v) if hasattr(v, '__len__') or hasattr(v, 'item') else v
+                if isinstance(arr, np.ndarray):
+                    if arr.ndim == 0:
+                        result[k] = arr.item()
+                    elif arr.size == 1:
+                        result[k] = arr.flat[0]
+                        # 转为 Python 原生类型
+                        if isinstance(result[k], (np.bool_,)):
+                            result[k] = bool(result[k])
+                        elif isinstance(result[k], (np.integer,)):
+                            result[k] = int(result[k])
+                        elif isinstance(result[k], (np.floating,)):
+                            result[k] = float(result[k])
+                    else:
+                        result[k] = arr
+                else:
+                    result[k] = v
         return result
 
-    def _flatten_feature(self, value: Any) -> np.ndarray:
-        array = self._strip_single_env_batch(self._to_numpy(value)).astype(np.float32)
-        if self.num_envs == 1:
-            return array.reshape(-1)
-        return array.reshape(array.shape[0], -1)
-
-    def _to_scalar_or_array(self, value: Any, dtype: type[np.float32] | type[np.bool_]) -> Any:
-        array = self._strip_single_env_batch(self._to_numpy(value))
-        if array.shape == ():
-            scalar = array.item()
-            return bool(scalar) if dtype is np.bool_ else float(scalar)
-        return array.astype(dtype)
+    @staticmethod
+    def _safe_dtype(dtype: Any) -> str:
+        return str(dtype)
 
     def _strip_single_env_batch(self, value: np.ndarray) -> np.ndarray:
         if self.num_envs == 1 and value.ndim > 0 and value.shape[0] == 1:

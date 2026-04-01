@@ -27,6 +27,7 @@ dependencies = [
     "tqdm>=4.65",
     "pillow>=9.0",
     "pyyaml>=6.0",
+    "gymnasium>=0.29.1",
 ]
 
 [project.optional-dependencies]
@@ -43,15 +44,13 @@ maniskill3 = ["mani-skill>=0.3"]
 robotwin = []  # 从源码安装
 
 # IsaacSim + IsaacLab（需要 Python 3.11, Linux only）
+# 在 Linux 上使用：
+#   1. git submodule update --init
+#   2. 取消 pyproject.toml 中 [tool.uv.sources] 的 isaaclab 注释
+#   3. uv sync --extra isaaclab
 isaaclab = [
-    "isaacsim[all,extscache]==5.1.0.0",
-    "isaaclab",
-    "isaaclab-assets",
-    "isaaclab-tasks",
-    "isaaclab-rl",
-    "isaaclab-mimic",
+    "isaacsim[all,extscache]==5.1.0.0; sys_platform == 'linux'",
 ]
-isaaclab-rl = ["isaaclab-mimic[all]", "isaaclab-rl[all]"]
 
 # 算法
 diffusion = ["diffusers>=0.25"]
@@ -108,7 +107,7 @@ dev = [
 
 [tool.uv]
 # Benchmark 环境之间可能有依赖冲突，不参与默认解析
-# 需要时单独安装：uv pip install -e ".[robomimic]"
+# 需要时单独安装：uv sync --extra robomimic
 conflicts = [
     [
         {extra = "robomimic"},
@@ -117,24 +116,31 @@ conflicts = [
         {extra = "isaaclab"},
     ],
 ]
-# IsaacSim 仅支持 Linux
+# 只解析当前平台，避免跨平台 local path 和 isaacsim 版本冲突
 environments = [
-    "sys_platform == 'linux'",
+    "sys_platform == 'darwin'",
+    "sys_platform == 'linux' and python_version == '3.11'",
 ]
 # FIX: https://github.com/isaac-sim/IsaacLab/issues/3884
 override-dependencies = ["pywin32==306; sys_platform == 'win32'"]
 
 [tool.uv.sources]
-# PyTorch CUDA 12.8 源
-torch = [{ index = "pytorch-cu128" }]
+# PyTorch CUDA 12.8 源（Linux GPU 环境使用）
+torch = [
+    { index = "pytorch-cu128", marker = "sys_platform == 'linux'" },
+]
 # IsaacSim NVIDIA 源
-isaacsim = [{ index = "nvidia" }]
-# IsaacLab 本地 editable 安装（git submodule）
-isaaclab = { path = "isaaclab/source/isaaclab", editable = true }
-isaaclab-assets = { path = "isaaclab/source/isaaclab_assets", editable = true }
-isaaclab-tasks = { path = "isaaclab/source/isaaclab_tasks", editable = true }
-isaaclab-rl = { path = "isaaclab/source/isaaclab_rl", editable = true }
-isaaclab-mimic = { path = "isaaclab/source/isaaclab_mimic", editable = true }
+isaacsim = [{ index = "nvidia", marker = "sys_platform == 'linux'" }]
+
+# IsaacLab 本地 editable 安装（git submodule, Linux only）
+# 在 Linux 上运行以下命令初始化：
+#   git submodule update --init
+#   然后取消下面的注释，再 uv sync --extra isaaclab
+# isaaclab = { path = "isaaclab/source/isaaclab", editable = true }
+# isaaclab-assets = { path = "isaaclab/source/isaaclab_assets", editable = true }
+# isaaclab-tasks = { path = "isaaclab/source/isaaclab_tasks", editable = true }
+# isaaclab-rl = { path = "isaaclab/source/isaaclab_rl", editable = true }
+# isaaclab-mimic = { path = "isaaclab/source/isaaclab_mimic", editable = true }
 
 [[tool.uv.index]]
 name = "pytorch-cu128"
